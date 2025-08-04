@@ -1,0 +1,39 @@
+# Use existing data for violin plots with sub-samples
+categories = ["Sub Sample 1", "Sub Sample 2", "Sub Sample 3", "Sub Sample 4", "Sub Sample 5"]
+n = len(data)
+count_per_category = n // len(categories)
+categorical_column = categories * count_per_category
+remaining = n % len(categories)
+if remaining > 0:
+    categorical_column += categories[:remaining]
+np.random.shuffle(categorical_column)
+data_df = pd.DataFrame({'data': data, 'Category': categorical_column})
+
+# Violin plot (Figure 3a) with numerical results in 3b
+fig = px.violin(data_df, y='data', x='Category', box=True, points="all", 
+                title='Violin Plot of Sub-Samples', color='Category',
+                color_discrete_map={'Sub Sample 1': 'green', 'Sub Sample 2': 'purple',
+                                   'Sub Sample 3': 'red', 'Sub Sample 4': 'gray',
+                                   'Sub Sample 5': 'orange'})
+fig.show()
+
+# Numerical results for Figure 3b (means and quartiles)
+category_stats = data_df.groupby('Category')['data'].describe()
+print("Numerical Results (Means and Quartiles):")
+print(category_stats[['mean', '25%', '50%', '75%']])
+
+# Sunburst plot (Figure 3c) with quartile partitioning
+data_df['Bin'] = pd.qcut(data_df['data'], 4, labels=['Q1', 'Q2', 'Q3', 'Q4'])
+fig = px.sunburst(data_df, path=['Category', 'Bin'], values='data', 
+                  title='Sunburst Chart with Quartiles Q1-Q4')
+fig.show()
+
+# Radar plot (Figure 3d) with mean values
+category_means = data_df.groupby('Category')['data'].mean()
+fig = go.Figure(data=go.Scatterpolar(
+    r=category_means,
+    theta=categories,
+    fill='toself',
+    name='Qasi Sub-Sample Means'))
+fig.update_layout(title='Radar Chart of Sub-Sample Means')
+fig.show()
