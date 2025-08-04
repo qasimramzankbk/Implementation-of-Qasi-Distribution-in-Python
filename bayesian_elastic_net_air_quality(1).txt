@@ -1,0 +1,144 @@
+import rpy2.robjects as ro
+from rpy2.robjects.packages import importr
+import numpy as np
+import pandas as pd
+from rpy2.robjects import pandas2ri
+pandas2ri.activate()
+
+# Load R libraries
+base = importr('base')
+utils = importr('utils')
+rstan = importr('rstan')
+MASS = importr('MASS')
+glmnet = importr('glmnet')
+Metrics = importr('Metrics')
+data_table = importr('data.table')
+
+# Load and preprocess Beijing PM2.5 dataset
+url = "https://archive.ics.uci.edu/ml/machine-learning-databases/00381/PRSA_data_2010.1.1-2014.12.31.csv"
+data = data_table.fread(url)
+data = data.drop('__index_level_0__', axis=1, errors='ignore')  # Remove index column if present
+data = data.dropna()  # Remove missing values
+X = data[['DEWP', 'TEMP', 'PRES', 'Is', 'Ir', 'cbwd_NE', 'cbwd_NW', 'cbwd_SE']].to_numpy()
+y = data['pm2.5'].to_numpy()
+X = (X - X.mean(axis=0)) / X.std(axis=0)  # Standardize predictors
+y = (y - y.mean()) / y.std()  # Standardize response
+n, p = X.shape
+
+# Check for multicollinearity
+cor_matrix = np.corrcoef(X, rowvar=False)
+print("Correlation Matrix:")
+print(cor_matrix)
+
+# Stan model for Bayesian Elastic Net
+stan_model = """
+data {
+  int<lower=0> n;  // Number of observations
+  int<lower=0> p;  // Number of predictors
+  matrix[n, p] X;  // Covariate matrix
+  vector[n] y;     // Response vector
+  real<lower=0> a; // Hyperparameter for sigma^2
+  real<lower=0> b; // Hyperparameter for sigma^2
+  real<lower=0> phi1; // Hyperparameter for lambda1
+  real<lower=0> delta1; // Hyperparameter for lambda1
+  real<lower=0> phi2; // Hyperparameter for lambda2
+  real<lower=0> delta2; // Hyperparameter for lambda2
+}
+parameters {
+  vector[p] beta;      // Regression coefficients
+  real<lower=0> sigma2; // Error variance
+  real<lower=0> lambda1; // L1 penalty parameter
+  real<lower=0> lambda2; // L2 penalty parameter
+  vector<lower=0>[p] tau2; // Latent variances for beta
+}
+model {
+  sigma2 ~ inv_gamma(a, b);
+  lambda1 ~ gamma(phi1, delta1);
+  lambda2 ~ gamma(phi2, delta2);
+  for (j in 1:p) {
+    tau2[j] ~ exponential(lambda1^2 / 2);
+    beta[j] ~ normal(0, sqrt(sigma2 * tau2[j] / (1 + lambda2 * tau2[j])));
+  }
+  y ~ normal(X * beta, sqrt(sigma2));
+}
+generated quantities {
+  real lambda1_se; // Posterior mean for lambda1 (SELF)
+  real lambda2_se; // Posterior mean for lambda2 (SELF)
+  real lambda1_ge; // For GELF
+  real lambda2_ge; // For GELF
+  real lambda1_pr; // For PLF
+  real lambda2_pr; // For PLF
+  real lambda1_ln; // For LLF
+  real lambda2_ln; // For LLF
+  lambda1_se = lambda1;
+  lambda2_se = lambda2;
+  lambda1_ge = pow(lambda1, -1); // GELF with k1 = 1
+  lambda2_ge = pow(lambda2, -1); // GELF with k1 = 1
+  lambda1_pr = lambda1^2; // PLF
+  lambda2_pr = lambda2^2; // PLF
+  lambda1_ln = exp(-1 * lambda1); // LLF with k2 = 1
+  lambda2_ln = exp(-1 * lambda2); // LLF with k2 = 1
+}
+"""
+
+# Compile and run Stan model
+stan_data = {'n': n, 'p': p, 'X': X, 'y': y, 'a': 1, 'b': 1, 'phi1': 1, 'delta1': 1, 'phi2': 1, 'delta2': 1}
+fit = rstan.stan(model_code=stan_model, data=stan_data, chains=2, iter=2000, warmup=1000, refresh=0)
+
+# Extract posterior samples
+extracted = rstan.extract(fit)
+beta_hat = np.mean(extracted['beta'], axis=0)
+lambda1_samples = extracted['lambda1']
+lambda2_samples = extracted['lambda2']
+
+# Compute estimators under different loss functions
+k1 = 1  # GELF shape parameter
+k2 = 1  # LLF shape parameter
+lambda1_ge = (np.mean(extracted['lambda1_ge']))**(-1/k1)  # GELF
+lambda2_ge = (np.mean(extracted['lambda2_ge']))**(-1/k1)  # GELF
+lambda1_se = np.mean(extracted['lambda1_se'])  # SELF
+lambda2_se = np.mean(extracted['lambda2_se'])  # SELF
+lambda1_pr = np.sqrt(np.mean(extracted['lambda1_pr']))  # PLF
+lambda2_pr = np.sqrt(np.mean(extracted['lambda2_pr']))  # PLF
+lambda1_ln = -1/k2 * np.log(np.mean(extracted['lambda1_ln']))  # LLF
+lambda2_ln = -1/k2 * np.log(np.mean(extracted['lambda2_ln']))  # LLF
+
+# Compute prediction MSE and sparsity
+y_pred_en = X @ beta_hat
+mse_en = Metrics.mse(y, y_pred_en)[0]
+sparsity_en = np.mean(np.abs(beta_hat) < 1e-3)
+
+# Classical Ridge and Elastic Net for comparison
+ridge_fit = glmnet.glmnet(X, y, alpha=0, **{'lambda': glmnet.cv_glmnet(X, y, alpha=0).rx2('lambda.min')})
+beta_ridge = np.array(base.as_vector(glmnet.coef_glmnet(ridge_fit))[1:])
+y_pred_ridge = X @ beta_ridge
+mse_ridge = Metrics.mse(y, y_pred_ridge)[0]
+sparsity_ridge = np.mean(np.abs(beta_ridge) < 1e-3)
+
+en_fit = glmnet.glmnet(X, y, alpha=0.5, **{'lambda': glmnet.cv_glmnet(X, y, alpha=0.5).rx2('lambda.min')})
+beta_en_classical = np.array(base.as_vector(glmnet.coef_glmnet(en_fit))[1:])
+y_pred_en_classical = X @ beta_en_classical
+mse_en_classical = Metrics.mse(y, y_pred_en_classical)[0]
+sparsity_en_classical = np.mean(np.abs(beta_en_classical) < 1e-3)
+
+# OLS for comparison
+beta_ols = np.linalg.solve(X.T @ X, X.T @ y)
+y_pred_ols = X @ beta_ols
+mse_ols = Metrics.mse(y, y_pred_ols)[0]
+
+# Output results
+print(f"Prediction MSE (Bayesian Elastic Net): {mse_en}")
+print(f"Prediction MSE (Ridge): {mse_ridge}")
+print(f"Prediction MSE (Classical Elastic Net): {mse_en_classical}")
+print(f"Prediction MSE (OLS): {mse_ols}")
+print(f"Sparsity (Bayesian Elastic Net): {sparsity_en}")
+print(f"Sparsity (Ridge): {sparsity_ridge}")
+print(f"Sparsity (Classical Elastic Net): {sparsity_en_classical}")
+print(f"Lambda1 (GELF): {lambda1_ge}")
+print(f"Lambda2 (GELF): {lambda2_ge}")
+print(f"Lambda1 (SELF): {lambda1_se}")
+print(f"Lambda2 (SELF): {lambda2_se}")
+print(f"Lambda1 (PLF): {lambda1_pr}")
+print(f"Lambda2 (PLF): {lambda2_pr}")
+print(f"Lambda1 (LLF): {lambda1_ln}")
+print(f"Lambda2 (LLF): {lambda2_ln}")

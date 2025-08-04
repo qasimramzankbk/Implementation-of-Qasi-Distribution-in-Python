@@ -1,0 +1,42 @@
+import numpy as np
+import plotly.graph_objects as go
+
+# Example data (assumes 'x' from data_generation.py)
+# Set up parameters for grid search
+points = 500
+delta_array = np.linspace(0.001, 5, points)
+lambda_array = np.linspace(0.0001, 5, points)
+T, L = np.meshgrid(delta_array, lambda_array)
+LL = np.empty((len(delta_array), len(lambda_array)))
+epsilon = 1e-10
+beta = 1
+
+for i, delta in enumerate(delta_array):
+    for j, lambd in enumerate(lambda_array):
+        term1 = 1 + 2 * delta * x
+        term2 = np.exp(-2 * delta * x)
+        safe_x = np.maximum(x, epsilon)
+        safe_term1_term2 = np.maximum(term1 * term2, epsilon)
+        safe_denominator = np.maximum(1 - (1 - term1_term2) ** lambd, epsilon)
+        safe_numerator_exp = np.maximum((1 - term1_term2) ** lambd, epsilon)
+        ll = (
+            np.log(beta * delta**2 * safe_x) -
+            2 * delta * x +
+            lambd * np.log(1 - safe_term1_term2) -
+            2 * np.log(safe_denominator) -
+            beta * safe_numerator_exp / safe_denominator
+        )
+        LL[i][j] = -ll.sum()
+
+LL_max = LL.max()
+idx = np.where(LL == LL_max)
+delta_fit = delta_array[idx[0]][0]
+lambda_fit = lambda_array[idx[1]][0]
+
+# Create 3D surface plot
+fig = go.Figure(data=[go.Surface(z=LL, x=delta_array, y=lambda_array)])
+fig.update_layout(
+    title='3D Surface Plot of Log-Likelihood Over a Range of Parametric Values',
+    scene=dict(xaxis_title='delta', yaxis_title='lambda', zaxis_title='Log-Likelihood')
+)
+fig.show()

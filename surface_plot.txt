@@ -1,0 +1,30 @@
+import numpy as np
+import plotly.graph_objects as go
+import itertools
+
+# Example data (assumes 'results_df' from correlation_matrix.py)
+variables = {
+    'pdf': results_df['pdf'],
+    'sf': results_df['sf'],
+    'hf': results_df['hf'],
+    'rhrf': results_df['rhrf'],
+    'chf': results_df['chf'],
+    'm': results_df['m'],
+    'w': results_df['w']
+}
+
+# Get combinations of variables
+combinations = list(itertools.combinations(variables.keys(), 3))
+
+for combo in combinations:
+    x_var, y_var, z_var = combo
+    x = variables[x_var]
+    y = variables[y_var]
+    z = variables[z_var]
+    y, z = np.meshgrid(y, z)
+    fig = go.Figure(data=[go.Surface(x=x, y=y, z=z)])
+    fig.update_layout(
+        title=f'3D Surface Plot of {x_var}, {y_var}, and {z_var}',
+        scene=dict(xaxis_title=x_var, yaxis_title=y_var, zaxis_title=z_var)
+    )
+    fig.show()

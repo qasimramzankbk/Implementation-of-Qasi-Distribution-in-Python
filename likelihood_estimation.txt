@@ -1,0 +1,71 @@
+import numpy as np
+import scipy.optimize as opt
+import scipy.stats as sts
+
+np.random.seed(42)
+beta_param = 1
+
+# Example data (assumes 'data' from data_generation.py)
+# x = data  # Uncomment and replace with actual data
+
+# Define the negative log-likelihood function
+def neg_log_likelihood(params, data, beta=1):
+    delta, lambd = params
+    epsilon = 1e-10
+    safe_data = np.maximum(data, epsilon)
+    term1 = 1 + 2 * delta * safe_data
+    term2 = np.exp(-2 * delta * safe_data)
+    safe_term1_term2 = np.maximum(term1 * term2, epsilon)
+    safe_denominator = np.maximum(1 - (1 - term1_term2) ** lambd, epsilon)
+    safe_numerator_exp = np.maximum((1 - term1_term2) ** lambd, epsilon)
+    ll = (
+        np.log(beta * delta**2 * safe_data) -
+        2 * delta * safe_data +
+        lambd * np.log(1 - safe_term1_term2) -
+        2 * np.log(safe_denominator) -
+        beta * safe_numerator_exp / safe_denominator
+    )
+    return -ll.sum()
+
+# Initial guess for delta and lambda
+initial_guess = [0.3, 0.80]
+delta_MLE_constr, lambda_MLE_constr = initial_guess[0], initial_guess[1]
+
+# Perform the optimization
+results_uncstr = opt.minimize(neg_log_likelihood, initial_guess, args=(data,), method='L-BFGS-B', bounds=[(0.001, None), (0.0001, None)])
+result = results_uncstr
+delta_MLE, lambda_MLE = results_uncstr.x
+
+# Calculate the variance-covariance matrix
+vcv_mle = results_uncstr.hess_inv.todense()
+
+# Standard errors
+stderr_delta_mle = np.sqrt(vcv_mle[0,0])
+stderr_lambda_mle = np.sqrt(vcv_mle[1,1])
+
+print(result)
+print(f"MLE estimates: delta={delta_MLE:.2f}, lambd={lambda_MLE:.2f}")
+print('Inverse Hessian:')
+print(result.hess_inv.todense())
+print('VCV(MLE) = ')
+print(vcv_mle)
+print('Standard error for delta estimate = ', stderr_delta_mle)
+print('Standard error for lambda estimate = ', stderr_lambda_mle)
+
+# Confidence intervals
+lb_delta_95pctci = delta_MLE - 2 * stderr_delta_mle
+print('delta_MLE =', delta_MLE, ', lower bound 95% conf. int. =', lb_delta_95pctci)
+lb_lambda_95pctci = lambda_MLE - 2 * stderr_lambda_mle
+print('lambda_MLE =', lambda_MLE, ', lower bound 95% conf. int. =', lb_lambda_95pctci)
+
+# Log-likelihood for hypothesis and MLE values
+log_lik_h0 = -neg_log_likelihood([delta_MLE_constr, lambda_MLE_constr], data)
+print('hypothesis value log likelihood', log_lik_h0)
+log_lik_mle = -neg_log_likelihood([delta_MLE, lambda_MLE], data)
+print('MLE log likelihood', log_lik_mle)
+
+# Likelihood ratio test
+LR_val = 2 * (log_lik_mle - log_lik_h0)
+print('likelihood ratio value', LR_val)
+pval_h0 = 1.0 - sts.chi2.cdf(LR_val, 2)
+print('chi squared of H0 with 2 degrees of freedom p-value = ', pval_h0)

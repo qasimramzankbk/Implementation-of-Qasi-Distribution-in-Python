@@ -1,0 +1,49 @@
+import pandas as pd
+import plotly.express as px
+
+# Example data (assumes 'results_df' from correlation_matrix.py)
+# Create DataFrames for each variable
+df_data = pd.DataFrame({'Value': results_df['x'], 'Category': ['Data'] * len(data)})
+df_pdf = pd.DataFrame({'Value': results_df['pdf'], 'Category': ['PDF'] * len(data)})
+df_sf = pd.DataFrame({'Value': results_df['sf'], 'Category': ['SF'] * len(data)})
+df_hf = pd.DataFrame({'Value': results_df['hf'], 'Category': ['HF'] * len(data)})
+df_rhrf = pd.DataFrame({'Value': results_df['rhrf'], 'Category': ['RHRF'] * len(data)})
+df_chf = pd.DataFrame({'Value': results_df['chf'], 'Category': ['CHF'] * len(data)})
+df_m = pd.DataFrame({'Value': results_df['m'], 'Category': ['M'] * len(data)})
+df_w = pd.DataFrame({'Value': results_df['w'], 'Category': ['W'] * len(data)})
+
+# Define color sequences
+colors = {
+    'Data': '#9467bd',
+    'PDF': '#008080',
+    'SF': '#ff7f0e',
+    'HF': '#2ca02c',
+    'RHRF': '#d62728',
+    'CHF': '#1f77b4',
+    'M': '#8c564b',
+    'W': '#e377c2'
+}
+
+# Helper function for violin plots
+def create_violin_plot(df, title, color):
+    fig = px.violin(df, y='Value', x='Category', box=True, points="all", title=title,
+                    color='Category', color_discrete_sequence=[color])
+    fig.update_layout(
+        title=dict(x=0.5, font=dict(size=20)),
+        yaxis=dict(title='Value', gridcolor='rgba(0, 0, 0, 0.1)'),
+        xaxis=dict(title='Category', gridcolor='rgba(0, 0, 0, 0.1)'),
+        plot_bgcolor='white',
+        showlegend=False
+    )
+    fig.update_traces(marker_line_width=0.5, opacity=0.9, selector=dict(type='violin'))
+    fig.show()
+
+# Create and show violin plots
+create_violin_plot(df_data, 'Violin Plot for Data', colors['Data'])
+create_violin_plot(df_pdf, 'Violin Plot for PDF', colors['PDF'])
+create_violin_plot(df_sf, 'Violin Plot for RF', colors['SF'])
+create_violin_plot(df_hf, 'Violin Plot for HF', colors['HF'])
+create_violin_plot(df_rhrf, 'Violin Plot for RHRF', colors['RHRF'])
+create_violin_plot(df_chf, 'Violin Plot for CHF', colors['CHF'])
+create_violin_plot(df_m, 'Violin Plot for M', colors['M'])
+create_violin_plot(df_w, 'Violin Plot for W', colors['W'])

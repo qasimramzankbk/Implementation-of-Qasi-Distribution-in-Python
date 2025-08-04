@@ -1,0 +1,67 @@
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+
+# Example data (assumes 'data' from data_generation.py)
+# Define placeholder functions (replace with actual implementations)
+def beta_pdf(beta_param, delta, lambd, x): pass
+def beta_sf(beta_param, delta, lambd, x): pass
+def beta_hf(beta_param, delta, lambd, x): pass
+def beta_rhrf(beta_param, delta, lambd, x): pass
+def beta_chf(beta_param, delta, lambd, x): pass
+def m_function(t, beta_param, delta, lambd): pass
+def w_function(t, beta_param, delta, lambd): pass
+
+# Function to evaluate functions
+def evaluate_functions_on_array(x_array):
+    pdf_results = [beta_pdf(0.2, 0.03, 0.05, x) for x in x_array]
+    sf_results = [beta_sf(0.2, 0.03, 0.05, x) for x in x_array]
+    hf_results = [beta_hf(0.2, 0.03, 0.05, x) for x in x_array]
+    rhrf_results = [beta_rhrf(0.2, 0.03, 0.05, x) for x in x_array]
+    chf_results = [beta_chf(0.2, 0.03, 0.05, x) for x in x_array]
+    m_results = [m_function(x, 0.8, 1.3, 0.5) for x in x_array]
+    w_results = [w_function(x, 0.2, 0.03, 0.05) for x in x_array]
+    return {
+        'pdf': np.array(pdf_results),
+        'sf': np.array(sf_results),
+        'hf': np.array(hf_results),
+        'rhrf': np.array(rhrf_results),
+        'chf': np.array(chf_results),
+        'm': np.array(m_results),
+        'w': np.array(w_results)
+    }
+
+# Evaluate functions
+results = evaluate_functions_on_array(data)
+results_df = pd.DataFrame({
+    'x': data,
+    'pdf': results['pdf'],
+    'sf': results['sf'],
+    'hf': results['hf'],
+    'rhrf': results['rhrf'],
+    'chf': results['chf'],
+    'm': results['m'],
+    'w': results['w']
+})
+
+# Compute correlation matrix
+correlation_matrix = results_df.corr()
+print(correlation_matrix)
+
+# Create heatmap
+fig = go.Figure(data=go.Heatmap(
+    z=correlation_matrix.values,
+    x=correlation_matrix.columns,
+    y=correlation_matrix.columns,
+    colorscale='Viridis',
+    text=correlation_matrix.values,
+    texttemplate="%{text:.2f}",
+    textfont={"size":12}
+))
+fig.update_layout(
+    title='Heatmap of Correlation between Data, PDF, RF, HF, RHRF, CHF, M, and W',
+    xaxis_title='Variable',
+    yaxis_title='Variable',
+    coloraxis_colorbar=dict(title="Correlation")
+)
+fig.show()

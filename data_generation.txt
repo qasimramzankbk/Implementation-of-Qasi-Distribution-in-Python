@@ -1,0 +1,83 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import scipy.stats as ss
+from IPython.display import FileLink
+import time
+
+# Define the custom beta PDF function
+def beta_pdf(beta_param, delta, lambd, x):
+    term1 = 1 + 2 * delta * x
+    term2 = np.exp(-2 * delta * x)
+    numerator = beta_param * (delta ** 2) * x * term2
+    inner_term = 1 - term1 * term2
+    numerator_exp = (inner_term ** lambd)
+    denominator_exp = (1 - inner_term ** lambd) ** 2
+    exp_term = np.exp(-beta_param * numerator_exp / (1 - inner_term ** lambd))
+    result = numerator * (numerator_exp / denominator_exp) * exp_term
+    return result
+
+# Parameters for the custom beta distribution
+beta_param, delta, lambd = 1.2, 0.03, 0.5
+
+# Define the range for x values
+a = 0   # xmin
+b = 50   # xmax
+
+# Find the maximum value of the PDF for scaling
+x_values = np.linspace(a, b, 1000)
+pdf_values = beta_pdf(beta_param, delta, lambd, x_values)
+m = np.max(pdf_values)  # ymax
+
+variables = []  # list for variables
+reject = 0      # number of rejections
+start = time.time()
+
+# Number of samples before accept-reject
+n_before_accept_reject = 150000
+u1 = np.random.uniform(a, b, size=n_before_accept_reject)
+u2 = np.random.uniform(0, m, size=n_before_accept_reject)
+
+# Perform rejection sampling
+variables = u1[u2 <= beta_pdf(beta_param, delta, lambd, u1)]
+accept = np.extract(variables>=0.0, variables)
+reject = n_before_accept_reject - len(accept)
+
+end = time.time()
+
+print("Time: ", end - start)
+print("Rejection: ", reject)
+# Find the minimum and maximum values
+min_value = variables.min()
+max_value = variables.max()
+
+print("Minimum value: ", min_value)
+print("Maximum value: ", max_value)
+
+# Plot the results
+x = np.linspace(a, b, 1000)
+plt.hist(variables, 50, density=True, alpha=0.6, color='g', label='Sampled Data')
+plt.plot(x, beta_pdf(beta_param, delta, lambd, x), 'r-', lw=2, label='True PDF')
+plt.title('Rejection Sampling for Custom beta Distribution')
+plt.xlabel('x')
+plt.ylabel('Density')
+plt.legend()
+plt.show()
+FileLink(r'GOF1.png')
+
+ax = plt.subplot()
+sns.histplot(variables, kde=True, bins=20, ax=ax, stat="density")
+ax.set(title='Histogram of observed data', xlabel='x', ylabel='Frequency')
+plt.tight_layout()
+plt.show()
+FileLink(r'GOF2.png')
+
+# Q-Q plot to compare the sampled data to the theoretical distribution
+ss.probplot(variables, dist="norm", plot=plt)
+plt.show()
+
+data = np.random.choice(variables, size=50, replace=False)
+min_value = np.min(data) - np.min(data)/2
+max_value = np.max(data) + np.min(data)/2
+print(data)
+print(len(data))
