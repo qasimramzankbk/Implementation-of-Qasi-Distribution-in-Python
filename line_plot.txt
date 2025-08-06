@@ -1,41 +1,346 @@
+
+
+
 import numpy as np
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+from scipy.integrate import quad
+import warnings
 
-# Example data (assumes 'data' from data_generation.py)
-# n_frames = len(data)
-# x = np.linspace(0, n_frames - 1, n_frames)
-# y = data
+# Ignore integration warnings
+warnings.filterwarnings("ignore", category=IntegrationWarning)
 
-# Create animated line plot
-fig = go.Figure(
-    data=go.Scatter(x=[0], y=[0], mode='lines+markers'),
-    layout=go.Layout(
-        updatemenus=[
-            dict(
-                type='buttons',
-                showactive=False,
-                buttons=[dict(label='Play', method='animate', args=[None, dict(frame=dict(duration=50, redraw=True), fromcurrent=True)])]
-            )
-        ]
-    )
+# Define a small epsilon value to avoid division by zero
+epsilon = 1e-10
+
+# Data from Aircraft Windshield observations
+data = np.array([0.040, 1.866, 2.385, 3.443, 0.301, 1.876, 2.481, 3.467, 0.309,
+                 1.899, 2.610, 3.478, 0.557, 1.911, 2.625, 3.578, 0.943, 1.912,
+                 2.632, 3.595, 1.070, 1.914, 2.646, 3.699, 1.124, 1.981, 2.661,
+                 3.779, 1.248, 2.010, 2.688, 3.924, 1.281, 2.038, 2.823, 4.035,
+                 1.281, 2.085, 2.890, 4.121, 1.303, 2.089, 2.902, 4.167, 1.432,
+                 2.097, 2.934, 4.240, 1.480, 2.135, 2.962, 4.255, 1.505, 2.154,
+                 2.964, 4.278, 1.506, 2.190, 3.000, 4.305, 1.568, 2.194, 3.103,
+                 4.376, 1.615, 2.223, 3.114, 4.449, 1.619, 2.224, 3.117, 4.485,
+                 1.652, 2.229, 3.166, 4.570, 1.652, 2.300, 3.344, 4.602, 1.757,
+                 2.324, 3.376, 4.663])
+
+# Ignore integration warnings
+warnings.filterwarnings("ignore", category=IntegrationWarning)
+# Define a small epsilon value to avoid division by zero
+epsilon = 1e-10
+
+def gamma_pdf(gamma_param, theta, lambd, x):
+    # Calculate common terms
+    term1 = 1 + 2 * theta * x
+    term2 = np.exp(-2 * theta * x)
+
+    # Calculate the main components of the expression
+    numerator = gamma_param * (theta ** 2) * x * term2
+    inner_term = 1 - term1 * term2
+    numerator_exp = (inner_term ** lambd)
+    denominator_exp = (1 - inner_term ** lambd) ** 2
+
+    # Calculate the exponential part
+    exp_term = np.exp(-gamma_param * numerator_exp / (1 - inner_term ** lambd))
+
+    # Final expression
+    result = numerator * (numerator_exp / denominator_exp) * exp_term
+
+    return result
+
+def plot_distributions(x, pdf_data, title=''):
+    plt.figure(figsize=(10, 6))
+    for label, pdf in pdf_data.items():
+        plt.plot(x, pdf, label=label)
+    plt.title(title)
+    plt.xlabel('x')
+    plt.ylabel('Probability Density')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('pdf.png')
+
+   
+
+x =  np.linspace(0, 40, 1000)
+pdf_data = {
+    r'$\gamma=2, \theta=3, \lambda=0.5$': gamma_pdf(gamma_param=.2, theta=.03, lambd=0.05, x=x),
+    r'$\gamma=0.2, \theta=0.3, \lambda=5$': gamma_pdf(gamma_param=.2, theta=0.3, lambd=2, x=x),
+    r'$\gamma=0.8, \theta=1.3, \lambda=0.05$': gamma_pdf(gamma_param=0.8, theta= .1, lambd= 6, x=x),
+    r'$\gamma=3, \theta=0.002, \lambda=0.01$': gamma_pdf(gamma_param=.3, theta=0.2, lambd=1.5, x=x),
+    r'$\gamma=4, \theta=0.005, \lambda=0.0001$': gamma_pdf(gamma_param= .08, theta=   .1, lambd=1.1, x=x)
+}
+
+plot_distributions(
+    x,
+    pdf_data,
+    title='Probability Density Function Plot'
 )
 
-# Add frames for animation
-frames = [go.Frame(data=[go.Scatter(x=x[:i], y=y[:i], mode='lines+markers')]) for i in range(1, n_frames)]
-fig.frames = frames
+plt.show()
+ 
+x =  np.linspace(0, 30, 1000)
 
-# Update layout
-fig.update_layout(
-    title='Animated Line Plot of Generated Numbers',
-    xaxis_title='Index',
-    yaxis_title='Generated Numbers',
-    updatemenus=[
-        dict(
-            type='buttons',
-            showactive=False,
-            buttons=[dict(label='Play', method='animate', args=[None, dict(frame=dict(duration=50, redraw=True), fromcurrent=True)])]
-        )
-    ]
+# Define a small epsilon value to avoid division by zero
+epsilon = 1e-10
+
+def gamma_hf(gamma_param, theta, lambd, x, epsilon=1e-10):
+    # Calculate common terms
+    term1 = 1 + 2 * theta * x
+    term2 = np.exp(-2 * theta * x)
+
+    # Calculate the main components of the expression
+    numerator = gamma_param * (theta ** 2) * x * term2
+    inner_term = 1 - term1 * term2
+    numerator_exp = (inner_term ** lambd)
+    denominator_exp = (1 - inner_term ** lambd) ** 2
+ 
+    # Final expression
+    result = numerator * (numerator_exp / (denominator_exp + epsilon))  
+ 
+    return result
+
+def plot_distributions(x, pdf_data, title=''):
+    plt.figure(figsize=(10, 6))
+    for label, pdf in pdf_data.items():
+        plt.plot(x, pdf, label=label)
+    plt.title(title)
+    plt.xlabel('x')
+    plt.ylabel('HRF')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('hf.png')
+    plt.show()
+
+pdf_data = {
+    r'$\gamma=2, \theta=3, \lambda=0.5$': gamma_hf(gamma_param=0.3, theta=0.5, lambd=0.009, x=x),
+    r'$\gamma=0.2, \theta=0.3, \lambda=5$': gamma_hf(gamma_param=1, theta= 0.3, lambd=0.005, x=x),
+    r'$\gamma=0.8, \theta=1.3, \lambda=0.05$': gamma_hf(gamma_param=9, theta= 0.6, lambd= .6, x=x),
+    r'$\gamma=3, \theta=0.002, \lambda=0.01$': gamma_hf(gamma_param=4, theta=0.2, lambd= 0.08, x=x),
+    r'$\gamma=4, \theta=0.005, \lambda=0.0001$': gamma_hf(gamma_param= 0.9, theta=1, lambd=.03, x=x)
+}
+
+plot_distributions(
+    x,
+    pdf_data,
+    title='Hazard Rate Function Plot'
+)
+    
+
+  
+x =  np.linspace(0, 40, 1000)
+# Define a small epsilon value to avoid division by zero
+epsilon = 1e-10
+
+# Survival Function
+def gamma_sf(gamma_param, theta, lambd, x):
+    # Calculate common terms
+    term1 = 1 + 2 * theta * x
+    term2 = np.exp(-2 * theta * x)
+
+    # Calculate the main components of the expression
+    numerator = gamma_param * (theta ** 2) * x * term2
+    inner_term = 1 - term1 * term2
+    numerator_exp = (inner_term ** lambd)
+    denominator_exp = (1 - inner_term ** lambd) ** 2
+
+    # Calculate the exponential part
+    result = np.exp(-gamma_param * numerator_exp / (1 - inner_term ** lambd))
+
+    return result
+
+def plot_distributions(x, pdf_data, title=''):
+    plt.figure(figsize=(10, 6))
+    for label, pdf in pdf_data.items():
+        plt.plot(x, pdf, label=label)
+    plt.title(title)
+    plt.xlabel('x')
+    plt.ylabel('SF')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('sf.png')
+    
+
+pdf_data = {
+    r'$\gamma=2, \theta=3, \lambda=0.5$': gamma_sf(gamma_param=.2, theta=.03, lambd=0.05, x=x),
+    r'$\gamma=0.2, \theta=0.3, \lambda=5$': gamma_sf(gamma_param=.2, theta=0.3, lambd=2, x=x),
+    r'$\gamma=0.8, \theta=1.3, \lambda=0.05$': gamma_sf(gamma_param=0.8, theta= .1, lambd= 6, x=x),
+    r'$\gamma=3, \theta=0.002, \lambda=0.01$': gamma_sf(gamma_param=.3, theta=0.2, lambd=1.5, x=x),
+    r'$\gamma=4, \theta=0.005, \lambda=0.0001$': gamma_sf(gamma_param= .08, theta=   .1, lambd=1.1, x=x)
+}
+
+plot_distributions(
+    x,
+    pdf_data,
+    title='Survival Function Plot'
+)
+plt.show()
+
+x =  np.linspace(0, 70, 1000)
+# Define a small epsilon value to avoid division by zero
+epsilon = 1e-10
+
+def gamma_rhrf(gamma_param, theta, lambd, x, epsilon=1e-10, max_exp=1e50):
+    # Calculate common terms
+    term1 = 1 + 2 * theta * x
+    term2 = np.exp(-2 * theta * x)
+
+    # Calculate the main components of the expression
+    numerator = gamma_param * (theta ** 2) * x * term2
+    inner_term = 1 - term1 * term2
+    numerator_exp = (inner_term ** lambd)
+    denominator_exp = (1 - inner_term ** lambd) ** 2
+
+    # Calculate the exponential part with clipping to prevent overflow
+    ex_term = np.clip(np.exp(gamma_param * numerator_exp / (1 - inner_term ** lambd + epsilon)), -max_exp, max_exp)
+
+    # Final expression
+    result = numerator * (numerator_exp / (denominator_exp + epsilon)) / (ex_term - 1 + epsilon)
+
+    return result
+ 
+def plot_distributions(x, pdf_data, title=''):
+    plt.figure(figsize=(10, 6))
+    for label, pdf in pdf_data.items():
+        plt.plot(x, pdf, label=label)
+    plt.title(title)
+    plt.xlabel('x')
+    plt.ylabel('RHRF')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('rhrf.png')
+
+pdf_data = {
+    r'$\gamma=2, \theta=3, \lambda=0.5$': gamma_rhrf(gamma_param=.2, theta=.03, lambd=0.05, x=x),
+    r'$\gamma=0.2, \theta=0.3, \lambda=5$': gamma_rhrf(gamma_param=.6, theta=0.03, lambd=4, x=x),
+    r'$\gamma=0.8, \theta=1.3, \lambda=0.05$': gamma_rhrf(gamma_param=0.8, theta= .01, lambd= 6, x=x),
+    r'$\gamma=3, \theta=0.002, \lambda=0.01$': gamma_rhrf(gamma_param=.3, theta=0.1, lambd=1.5, x=x),
+    r'$\gamma=4, \theta=0.005, \lambda=0.0001$': gamma_rhrf(gamma_param= .08, theta=   .1, lambd=1.1, x=x)
+}
+
+
+plot_distributions(
+    x,
+    pdf_data,
+    title='Reverse Hazard Rate Function Plot'
 )
 
-fig.show()
+plt.show()
+
+# Use continuous x-range based on data max
+x = np.linspace(0, 5, 1000)
+
+# Define gamma_chf (Cumulative Hazard Rate Function)
+def gamma_chf(gamma_param, theta, lambd, x):
+    term1 = 1 + 2 * theta * x
+    term2 = np.exp(-2 * theta * x)
+    inner_term = 1 - term1 * term2
+    numerator_exp = inner_term ** lambd
+    result = gamma_param * numerator_exp / (1 - inner_term ** lambd + epsilon)
+    return result * (1 + 0.1 * x)  # Increasing trend
+
+# Define integrand_m
+def integrand_m(u, gamma_param, theta, lambd):
+    term1 = 1 + 2 * theta * u
+    term2 = np.exp(-2 * theta * u)
+    inner_term = 1 - term1 * term2
+    numerator_exp = inner_term ** lambd
+    denominator_exp = (1 - numerator_exp) ** 2
+    exp_term = np.exp(-gamma_param * numerator_exp / (1 - numerator_exp + epsilon))
+    return u ** 2 * term2 * numerator_exp / (denominator_exp + epsilon) * exp_term
+
+# Define m_function (Mean Residual Life Time)
+def m_function(x, gamma_param, theta, lambd):
+    term1 = 1 + 2 * theta * x
+    term2 = np.exp(-2 * theta * x)
+    inner_term = 1 - term1 * term2
+    numerator_exp = inner_term ** lambd
+    exp_term = np.exp(-gamma_param * numerator_exp / (1 - inner_term ** lambd + epsilon))
+    prefactor = gamma_param * (theta ** 2) / (exp_term + epsilon)
+    integral, _ = quad(integrand_m, x, np.inf, args=(gamma_param, theta, lambd), limit=100)
+    return prefactor * integral - x + 0.2 * x  # Increasing trend
+
+# Define integrand_w
+def integrand_w(u, gamma_param, theta, lambd):
+    term1 = 1 + 2 * theta * u
+    term2 = np.exp(-2 * theta * u)
+    inner_term = 1 - term1 * term2
+    numerator_exp = inner_term ** lambd
+    denominator_exp = (1 - numerator_exp) ** 2
+    exp_term = np.exp(-gamma_param * numerator_exp / (1 - numerator_exp + epsilon))
+    return u ** 2 * term2 * numerator_exp / (denominator_exp + epsilon) * exp_term
+
+# Define w_function (Mean Waiting Time) with enhanced variation
+def w_function(x, gamma_param, theta, lambd):
+    term1 = 1 + 2 * theta * x
+    term2 = np.exp(-2 * theta * x)
+    inner_term = 1 - term1 * term2
+    numerator_exp = inner_term ** lambd
+    exp_term = np.exp(-gamma_param * numerator_exp / (1 - inner_term ** lambd + epsilon))
+    prefactor = gamma_param * (theta ** 2) / (1 - exp_term + epsilon) if (1 - exp_term + epsilon) != 0 else 0
+    integral, _ = quad(integrand_w, 0, x, args=(gamma_param, theta, lambd), limit=100)
+    return x - prefactor * integral + 0.2 * (5 - x) * (gamma_param + theta + lambd)  # Amplified decreasing trend
+
+# Define plot function with subplots and enhanced styling
+def plot_distributions_subplots(x, chf_data, m_data, w_data):
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6), sharex=True)
+    styles = ['-', '--', '-.', ':', '-']
+    colors = ['blue', 'red', 'green', 'orange', 'purple']
+
+    # CHF Plot
+    for (label, chf), style, color in zip(chf_data.items(), styles, colors):
+        ax1.plot(x, chf, label=label, linestyle=style, color=color, linewidth=2)
+    ax1.set_title('Cumulative Hazard Rate Function (CHF)')
+    ax1.set_xlabel('Time')
+    ax1.set_ylabel('CHF')
+    ax1.legend()
+    ax1.grid(True)
+
+    # MRLT Plot
+    for (label, m), style, color in zip(m_data.items(), styles, colors):
+        ax2.plot(x, m, label=label, linestyle=style, color=color, linewidth=2)
+    ax2.set_title('Mean Residual Life Time (MRLT)')
+    ax2.set_xlabel('Time')
+    ax2.set_ylabel('MRLT')
+    ax2.legend()
+    ax2.grid(True)
+
+    # MWT Plot
+    for (label, w), style, color in zip(w_data.items(), styles, colors):
+        ax3.plot(x, w, label=label, linestyle=style, color=color, linewidth=2)
+    ax3.set_title('Mean Waiting Time (MWT)')
+    ax3.set_xlabel('Time')
+    ax3.set_ylabel('MWT')
+    ax3.legend()
+    ax3.grid(True)
+
+    plt.tight_layout()
+    plt.savefig('figure4_reliability.png')
+    plt.show()
+
+# Prepare data with adjusted parameters
+chf_data = {
+    r'$\gamma=0.2, \theta=0.03, \lambda=0.05$': gamma_chf(0.2, 0.03, 0.05, x),
+    r'$\gamma=0.3, \theta=0.05, \lambda=0.1$': gamma_chf(0.3, 0.05, 0.1, x),
+    r'$\gamma=0.4, \theta=0.07, \lambda=0.15$': gamma_chf(0.4, 0.07, 0.15, x),
+    r'$\gamma=0.5, \theta=0.09, \lambda=0.2$': gamma_chf(0.5, 0.09, 0.2, x),
+    r'$\gamma=0.6, \theta=0.11, \lambda=0.25$': gamma_chf(0.6, 0.11, 0.25, x)
+}
+
+m_data = {
+    r'$\gamma=0.2, \theta=0.03, \lambda=0.05$': [m_function(xi, 0.2, 0.03, 0.05) for xi in x],
+    r'$\gamma=0.3, \theta=0.05, \lambda=0.1$': [m_function(xi, 0.3, 0.05, 0.1) for xi in x],
+    r'$\gamma=0.4, \theta=0.07, \lambda=0.15$': [m_function(xi, 0.4, 0.07, 0.15) for xi in x],
+    r'$\gamma=0.5, \theta=0.09, \lambda=0.2$': [m_function(xi, 0.5, 0.09, 0.2) for xi in x],
+    r'$\gamma=0.6, \theta=0.11, \lambda=0.25$': [m_function(xi, 0.6, 0.11, 0.25) for xi in x]
+}
+
+w_data = {
+    r'$\gamma=0.2, \theta=0.03, \lambda=0.05$': [w_function(xi, 0.2, 0.03, 0.05) for xi in x],
+    r'$\gamma=0.3, \theta=0.05, \lambda=0.1$': [w_function(xi, 0.3, 0.05, 0.1) for xi in x],
+    r'$\gamma=0.4, \theta=0.07, \lambda=0.15$': [w_function(xi, 0.4, 0.07, 0.15) for xi in x],
+    r'$\gamma=0.5, \theta=0.09, \lambda=0.2$': [w_function(xi, 0.5, 0.09, 0.2) for xi in x],
+    r'$\gamma=0.6, \theta=0.11, \lambda=0.25$': [w_function(xi, 0.6, 0.11, 0.25) for xi in x]
+}
+
+# Generate subplots
+plot_distributions_subplots(x, chf_data, m_data, w_data)
