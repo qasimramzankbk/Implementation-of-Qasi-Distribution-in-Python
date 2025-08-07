@@ -1,144 +1,196 @@
-import rpy2.robjects as ro
-from rpy2.robjects.packages import importr
+# Install required packages (run once in Kaggle notebook)
+# !pip install plotly numpy pandas scipy
+
 import numpy as np
 import pandas as pd
-from rpy2.robjects import pandas2ri
-pandas2ri.activate()
+import plotly.graph_objects as go
+from plotly.offline import iplot
+import itertools
+from scipy.integrate import quad, IntegrationWarning
+import warnings
 
-# Load R libraries
-base = importr('base')
-utils = importr('utils')
-rstan = importr('rstan')
-MASS = importr('MASS')
-glmnet = importr('glmnet')
-Metrics = importr('Metrics')
-data_table = importr('data.table')
+# Ignore integration warnings
+warnings.filterwarnings("ignore", category=IntegrationWarning)
+epsilon = 1e-10
 
-# Load and preprocess Beijing PM2.5 dataset
-url = "https://archive.ics.uci.edu/ml/machine-learning-databases/00381/PRSA_data_2010.1.1-2014.12.31.csv"
-data = data_table.fread(url)
-data = data.drop('__index_level_0__', axis=1, errors='ignore')  # Remove index column if present
-data = data.dropna()  # Remove missing values
-X = data[['DEWP', 'TEMP', 'PRES', 'Is', 'Ir', 'cbwd_NE', 'cbwd_NW', 'cbwd_SE']].to_numpy()
-y = data['pm2.5'].to_numpy()
-X = (X - X.mean(axis=0)) / X.std(axis=0)  # Standardize predictors
-y = (y - y.mean()) / y.std()  # Standardize response
-n, p = X.shape
+# Define gamma_* functions as provided
+def gamma_pdf(gamma_param, theta, lambd, x):
+    term1 = 1 + 2 * theta * x
+    term2 = np.exp(-2 * theta * x)
+    numerator = gamma_param * (theta ** 2) * x * term2
+    inner_term = 1 - term1 * term2
+    numerator_exp = (inner_term ** lambd)
+    denominator_exp = (1 - inner_term ** lambd) ** 2
+    exp_term = np.exp(-gamma_param * numerator_exp / (1 - inner_term ** lambd))
+    result = numerator * (numerator_exp / denominator_exp) * exp_term
+    return np.where(x >= 0, result, 0)  # Ensure non-negative x
 
-# Check for multicollinearity
-cor_matrix = np.corrcoef(X, rowvar=False)
-print("Correlation Matrix:")
-print(cor_matrix)
+def gamma_hf(gamma_param, theta, lambd, x, epsilon=1e-10):
+    term1 = 1 + 2 * theta * x
+    term2 = np.exp(-2 * theta * x)
+    numerator = gamma_param * (theta ** 2) * x * term2
+    inner_term = 1 - term1 * term2
+    numerator_exp = (inner_term ** lambd)
+    denominator_exp = (1 - inner_term ** lambd) ** 2
+    result = numerator * (numerator_exp / (denominator_exp + epsilon))
+    return result
 
-# Stan model for Bayesian Elastic Net
-stan_model = """
-data {
-  int<lower=0> n;  // Number of observations
-  int<lower=0> p;  // Number of predictors
-  matrix[n, p] X;  // Covariate matrix
-  vector[n] y;     // Response vector
-  real<lower=0> a; // Hyperparameter for sigma^2
-  real<lower=0> b; // Hyperparameter for sigma^2
-  real<lower=0> phi1; // Hyperparameter for lambda1
-  real<lower=0> delta1; // Hyperparameter for lambda1
-  real<lower=0> phi2; // Hyperparameter for lambda2
-  real<lower=0> delta2; // Hyperparameter for lambda2
+def gamma_sf(gamma_param, theta, lambd, x):
+    term1 = 1 + 2 * theta * x
+    term2 = np.exp(-2 * theta * x)
+    numerator = gamma_param * (theta ** 2) * x * term2
+    inner_term = 1 - term1 * term2
+    numerator_exp = (inner_term ** lambd)
+    denominator_exp = (1 - inner_term ** lambd) ** 2
+    result = np.exp(-gamma_param * numerator_exp / (1 - inner_term ** lambd))
+    return np.maximum(result, epsilon)  # Ensure non-negative
+
+def gamma_rhrf(gamma_param, theta, lambd, x, epsilon=1e-10, max_exp=1e50):
+    term1 = 1 + 2 * theta * x
+    term2 = np.exp(-2 * theta * x)
+    numerator = gamma_param * (theta ** 2) * x * term2
+    inner_term = 1 - term1 * term2
+    numerator_exp = (inner_term ** lambd)
+    denominator_exp = (1 - inner_term ** lambd) ** 2
+    ex_term = np.clip(np.exp(gamma_param * numerator_exp / (1 - inner_term ** lambd + epsilon)), -max_exp, max_exp)
+    result = numerator * (numerator_exp / (denominator_exp + epsilon)) / (ex_term - 1 + epsilon)
+    return result
+
+def gamma_chf(gamma_param, theta, lambd, x):
+    term1 = 1 + 2 * theta * x
+    term2 = np.exp(-2 * theta * x)
+    inner_term = 1 - term1 * term2
+    numerator_exp = (inner_term ** lambd)
+    result = gamma_param * numerator_exp / (1 - inner_term ** lambd + epsilon)
+    return result
+
+def integrand_m(u, gamma_param, theta, lambd):
+    term1 = 1 + 2 * theta * u
+    term2 = np.exp(-2 * theta * u)
+    inner_term = 1 - term1 * term2
+    numerator_exp = inner_term ** lambd
+    denominator_exp = (1 - numerator_exp) ** 2
+    exp_term = np.exp(-gamma_param * numerator_exp / (1 - numerator_exp + epsilon))
+    result = u ** 2 * term2 * numerator_exp / (denominator_exp + epsilon) * exp_term
+    return result
+
+def m_function(x, gamma_param, theta, lambd):
+    term1 = 1 + 2 * theta * x
+    term2 = np.exp(-2 * theta * x)
+    inner_term = 1 - term1 * term2
+    numerator_exp = inner_term ** lambd
+    exp_term = np.exp(-gamma_param * numerator_exp / (1 - numerator_exp + epsilon))
+    prefactor = gamma_param * (theta ** 2) / (exp_term + epsilon)
+    integral, _ = quad(integrand_m, x, np.inf, args=(gamma_param, theta, lambd), limit=100)
+    result = prefactor * integral - x
+    return np.where(np.isfinite(result), result, np.inf)  # Handle potential inf
+
+def integrand_w(u, gamma_param, theta, lambd):
+    term1 = 1 + 2 * theta * u
+    term2 = np.exp(-2 * theta * u)
+    inner_term = 1 - term1 * term2
+    numerator_exp = inner_term ** lambd
+    denominator_exp = (1 - numerator_exp) ** 2
+    exp_term = np.exp(-gamma_param * numerator_exp / (1 - numerator_exp + epsilon))
+    result = u ** 2 * term2 * numerator_exp / (denominator_exp + epsilon) * exp_term
+    return result
+
+def w_function(x, gamma_param, theta, lambd):
+    term1 = 1 + 2 * theta * x
+    term2 = np.exp(-2 * theta * x)
+    inner_term = 1 - term1 * term2
+    numerator_exp = inner_term ** lambd
+    exp_term = np.exp(-gamma_param * numerator_exp / (1 - numerator_exp + epsilon))
+    prefactor = gamma_param * (theta ** 2) / (1 - exp_term + epsilon)
+    integral, _ = quad(integrand_w, 0, x, args=(gamma_param, theta, lambd), limit=100)
+    result = x - prefactor * integral
+    return np.where(np.isfinite(result), result, 0)  # Handle potential inf
+
+# Sample data (Aircraft Windshield failure times)
+data = np.array([0.040, 1.866, 2.385, 3.443, 0.301, 1.876, 2.481, 3.467, 0.309,
+                 1.899, 2.610, 3.478, 0.557, 1.911, 2.625, 3.578, 0.943, 1.912,
+                 2.632, 3.595, 1.070, 1.914, 2.646, 3.699, 1.124, 1.981, 2.661,
+                 3.779, 1.248, 2.010, 2.688, 3.924, 1.281, 2.038, 2.823, 4.035,
+                 1.281, 2.085, 2.890, 4.121, 1.303, 2.089, 2.902, 4.167, 1.432,
+                 2.097, 2.934, 4.240, 1.480, 2.135, 2.962, 4.255, 1.505, 2.154,
+                 2.964, 4.278, 1.506, 2.190, 3.000, 4.305, 1.568, 2.194, 3.103,
+                 4.376, 1.615, 2.223, 3.114, 4.449, 1.619, 2.224, 3.117, 4.485,
+                 1.652, 2.229, 3.166, 4.570, 1.652, 2.300, 3.344, 4.602, 1.757,
+                 2.324, 3.376, 4.663])
+
+# Evaluate functions
+results = {
+    'pdf': gamma_pdf(0.2, 0.03, 0.05, data),
+    'sf': gamma_sf(0.2, 0.03, 0.05, data),
+    'hf': gamma_hf(0.2, 0.03, 0.05, data),
+    'rhrf': gamma_rhrf(0.2, 0.03, 0.05, data),
+    'chf': gamma_chf(0.2, 0.03, 0.05, data),
+    'm': np.array([m_function(x, 0.8, 1.3, 0.5) for x in data]),  # Vectorize m_function
+    'w': np.array([w_function(x, 0.2, 0.03, 0.05) for x in data])  # Vectorize w_function
 }
-parameters {
-  vector[p] beta;      // Regression coefficients
-  real<lower=0> sigma2; // Error variance
-  real<lower=0> lambda1; // L1 penalty parameter
-  real<lower=0> lambda2; // L2 penalty parameter
-  vector<lower=0>[p] tau2; // Latent variances for beta
+results_df = pd.DataFrame({
+    'x': data,
+    'pdf': results['pdf'],
+    'sf': results['sf'],
+    'hf': results['hf'],
+    'rhrf': results['rhrf'],
+    'chf': results['chf'],
+    'm': results['m'],
+    'w': results['w']
+})
+
+# Compute correlation matrix
+correlation_matrix = results_df.corr()
+print(correlation_matrix)
+
+# Create heatmap
+fig = go.Figure(data=go.Heatmap(
+    z=correlation_matrix.values,
+    x=correlation_matrix.columns,
+    y=correlation_matrix.columns,
+    colorscale='Viridis',
+    text=correlation_matrix.values,
+    texttemplate="%{text:.2f}",
+    textfont={"size": 12}
+))
+fig.update_layout(
+    title='Heatmap of Correlation between Data, PDF, SF, HF, RHRF, CHF, M, and W',
+    xaxis_title='Variable',
+    yaxis_title='Variable',
+    coloraxis_colorbar=dict(title="Correlation")
+)
+iplot(fig)  # Use iplot for Kaggle compatibility
+
+# 3D Surface Plots
+variables = {
+    'pdf': results_df['pdf'],
+    'sf': results_df['sf'],
+    'hf': results_df['hf'],
+    'rhrf': results_df['rhrf'],
+    'chf': results_df['chf'],
+    'm': results_df['m'],
+    'w': results_df['w']
 }
-model {
-  sigma2 ~ inv_gamma(a, b);
-  lambda1 ~ gamma(phi1, delta1);
-  lambda2 ~ gamma(phi2, delta2);
-  for (j in 1:p) {
-    tau2[j] ~ exponential(lambda1^2 / 2);
-    beta[j] ~ normal(0, sqrt(sigma2 * tau2[j] / (1 + lambda2 * tau2[j])));
-  }
-  y ~ normal(X * beta, sqrt(sigma2));
-}
-generated quantities {
-  real lambda1_se; // Posterior mean for lambda1 (SELF)
-  real lambda2_se; // Posterior mean for lambda2 (SELF)
-  real lambda1_ge; // For GELF
-  real lambda2_ge; // For GELF
-  real lambda1_pr; // For PLF
-  real lambda2_pr; // For PLF
-  real lambda1_ln; // For LLF
-  real lambda2_ln; // For LLF
-  lambda1_se = lambda1;
-  lambda2_se = lambda2;
-  lambda1_ge = pow(lambda1, -1); // GELF with k1 = 1
-  lambda2_ge = pow(lambda2, -1); // GELF with k1 = 1
-  lambda1_pr = lambda1^2; // PLF
-  lambda2_pr = lambda2^2; // PLF
-  lambda1_ln = exp(-1 * lambda1); // LLF with k2 = 1
-  lambda2_ln = exp(-1 * lambda2); // LLF with k2 = 1
-}
-"""
 
-# Compile and run Stan model
-stan_data = {'n': n, 'p': p, 'X': X, 'y': y, 'a': 1, 'b': 1, 'phi1': 1, 'delta1': 1, 'phi2': 1, 'delta2': 1}
-fit = rstan.stan(model_code=stan_model, data=stan_data, chains=2, iter=2000, warmup=1000, refresh=0)
+combinations = list(itertools.combinations(variables.keys(), 3))
 
-# Extract posterior samples
-extracted = rstan.extract(fit)
-beta_hat = np.mean(extracted['beta'], axis=0)
-lambda1_samples = extracted['lambda1']
-lambda2_samples = extracted['lambda2']
+for combo in combinations:
+    x_var, y_var, z_var = combo
+    x = variables[x_var]
+    y = variables[y_var]
+    z = variables[z_var]
 
-# Compute estimators under different loss functions
-k1 = 1  # GELF shape parameter
-k2 = 1  # LLF shape parameter
-lambda1_ge = (np.mean(extracted['lambda1_ge']))**(-1/k1)  # GELF
-lambda2_ge = (np.mean(extracted['lambda2_ge']))**(-1/k1)  # GELF
-lambda1_se = np.mean(extracted['lambda1_se'])  # SELF
-lambda2_se = np.mean(extracted['lambda2_se'])  # SELF
-lambda1_pr = np.sqrt(np.mean(extracted['lambda1_pr']))  # PLF
-lambda2_pr = np.sqrt(np.mean(extracted['lambda2_pr']))  # PLF
-lambda1_ln = -1/k2 * np.log(np.mean(extracted['lambda1_ln']))  # LLF
-lambda2_ln = -1/k2 * np.log(np.mean(extracted['lambda2_ln']))  # LLF
+    # Ensure consistent lengths and create meshgrid
+    min_len = min(len(x), len(y), len(z))
+    x = x[:min_len]
+    y = y[:min_len]
+    z = z[:min_len]
+    y, z = np.meshgrid(y, z)
+    x = np.tile(x, (len(y), 1))  # Expand x to match meshgrid
 
-# Compute prediction MSE and sparsity
-y_pred_en = X @ beta_hat
-mse_en = Metrics.mse(y, y_pred_en)[0]
-sparsity_en = np.mean(np.abs(beta_hat) < 1e-3)
-
-# Classical Ridge and Elastic Net for comparison
-ridge_fit = glmnet.glmnet(X, y, alpha=0, **{'lambda': glmnet.cv_glmnet(X, y, alpha=0).rx2('lambda.min')})
-beta_ridge = np.array(base.as_vector(glmnet.coef_glmnet(ridge_fit))[1:])
-y_pred_ridge = X @ beta_ridge
-mse_ridge = Metrics.mse(y, y_pred_ridge)[0]
-sparsity_ridge = np.mean(np.abs(beta_ridge) < 1e-3)
-
-en_fit = glmnet.glmnet(X, y, alpha=0.5, **{'lambda': glmnet.cv_glmnet(X, y, alpha=0.5).rx2('lambda.min')})
-beta_en_classical = np.array(base.as_vector(glmnet.coef_glmnet(en_fit))[1:])
-y_pred_en_classical = X @ beta_en_classical
-mse_en_classical = Metrics.mse(y, y_pred_en_classical)[0]
-sparsity_en_classical = np.mean(np.abs(beta_en_classical) < 1e-3)
-
-# OLS for comparison
-beta_ols = np.linalg.solve(X.T @ X, X.T @ y)
-y_pred_ols = X @ beta_ols
-mse_ols = Metrics.mse(y, y_pred_ols)[0]
-
-# Output results
-print(f"Prediction MSE (Bayesian Elastic Net): {mse_en}")
-print(f"Prediction MSE (Ridge): {mse_ridge}")
-print(f"Prediction MSE (Classical Elastic Net): {mse_en_classical}")
-print(f"Prediction MSE (OLS): {mse_ols}")
-print(f"Sparsity (Bayesian Elastic Net): {sparsity_en}")
-print(f"Sparsity (Ridge): {sparsity_ridge}")
-print(f"Sparsity (Classical Elastic Net): {sparsity_en_classical}")
-print(f"Lambda1 (GELF): {lambda1_ge}")
-print(f"Lambda2 (GELF): {lambda2_ge}")
-print(f"Lambda1 (SELF): {lambda1_se}")
-print(f"Lambda2 (SELF): {lambda2_se}")
-print(f"Lambda1 (PLF): {lambda1_pr}")
-print(f"Lambda2 (PLF): {lambda2_pr}")
-print(f"Lambda1 (LLF): {lambda1_ln}")
-print(f"Lambda2 (LLF): {lambda2_ln}")
+    fig = go.Figure(data=[go.Surface(x=x, y=y, z=z)])
+    fig.update_layout(
+        title=f'3D Surface Plot of {x_var}, {y_var}, and {z_var}',
+        scene=dict(xaxis_title=x_var, yaxis_title=y_var, zaxis_title=z_var)
+    )
+    iplot(fig)  # Use iplot for Kaggle
